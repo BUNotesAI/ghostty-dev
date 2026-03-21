@@ -126,9 +126,9 @@ final class ProgressLogWatcher: ObservableObject {
                 self.scheduleRead()
             }
         }
-        src.setCancelHandler { [weak self] in
-            self?.closeDescriptor()
-        }
+        // No cancel handler — stopMonitoring() and deinit close the descriptor explicitly.
+        // A cancel handler here would race with updateSessionName(): the async callback
+        // fires after a new descriptor is opened and closes it, leaving the new source dead.
         src.resume()
         self.source = src
     }
