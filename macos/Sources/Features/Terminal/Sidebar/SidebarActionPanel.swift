@@ -1,13 +1,5 @@
 import SwiftUI
 
-/// The state of the first pane in a tab, used to determine which action buttons are enabled.
-enum PaneState: Equatable {
-    case idle           // Shell prompt — Resume tmux enabled
-    case tmuxRunning    // In tmux session — Launch CC + Detach enabled
-    case ccRunning      // CC running in tmux — only Detach enabled
-    case unknown        // Other program — all disabled
-}
-
 /// Action popover content shown when the user clicks the action button on a selected tab.
 /// Floats above the terminal pane without affecting layout.
 struct SidebarActionPopover: View {
@@ -19,8 +11,6 @@ struct SidebarActionPopover: View {
     @State private var showSnippetEditor = false
     @State private var editingSnippet: Snippet?
 
-    private var paneState: PaneState { tabManager.selectedPaneState }
-
     /// Read font size from UserDefaults to match sidebar tab cards.
     private var fontSize: CGFloat {
         let v = UserDefaults.standard.double(forKey: "SidebarFontSize")
@@ -29,23 +19,41 @@ struct SidebarActionPopover: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            // Built-in actions
+            // Zellij actions
+            sectionHeader("Zellij")
             actionButton(
-                "Resume tmux",
+                "Launch Zellij",
                 icon: "terminal",
-                enabled: paneState == .idle,
+                action: { tabManager.launchZellij(); isPresented = false }
+            )
+            actionButton(
+                "Run CC@Zellij",
+                icon: "sparkle",
+                action: { tabManager.launchCC(); isPresented = false }
+            )
+            actionButton(
+                "Detach Zellij",
+                icon: "arrow.uturn.left",
+                action: { tabManager.detachZellij(); isPresented = false }
+            )
+
+            Divider().padding(.vertical, 2)
+
+            // Tmux actions
+            sectionHeader("tmux")
+            actionButton(
+                "Launch tmux",
+                icon: "terminal",
                 action: { tabManager.launchTmux(); isPresented = false }
             )
             actionButton(
-                "Launch CC",
+                "Run CC@tmux",
                 icon: "sparkle",
-                enabled: paneState == .tmuxRunning && !tabManager.isLaunchingCC,
                 action: { tabManager.launchCC(); isPresented = false }
             )
             actionButton(
                 "Detach tmux",
                 icon: "arrow.uturn.left",
-                enabled: paneState == .tmuxRunning || paneState == .ccRunning,
                 action: { tabManager.detachTmux(); isPresented = false }
             )
 
@@ -104,7 +112,19 @@ struct SidebarActionPopover: View {
     }
 
     @ViewBuilder
-    private func actionButton(_ title: String, icon: String, enabled: Bool, action: @escaping () -> Void) -> some View {
+    private func sectionHeader(_ title: String) -> some View {
+        HStack {
+            Text(title)
+                .font(.system(size: fontSize - 1, weight: .semibold))
+                .foregroundColor(theme.secondaryText)
+                .textCase(.uppercase)
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+    }
+
+    @ViewBuilder
+    private func actionButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
@@ -115,11 +135,10 @@ struct SidebarActionPopover: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
-            .background(enabled ? theme.activeTabBackground : Color.clear)
-            .foregroundColor(enabled ? theme.foreground : theme.secondaryText.opacity(0.5))
+            .background(theme.activeTabBackground)
+            .foregroundColor(theme.foreground)
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
-        .disabled(!enabled)
     }
 }

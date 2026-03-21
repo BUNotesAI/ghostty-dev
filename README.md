@@ -16,7 +16,7 @@ Each tab displays a live progress log overlay on the first pane, updated via a f
 - **Real-time** — Swift uses `DispatchSource` (kqueue) to detect file changes, zero polling
 - **8 lines visible** — latest entries shown, newest first; full history in file
 - **Read-only display** — clean, distraction-free status view
-- **Per-tab isolation** — each tab has its own log keyed by session name (e.g. `GHOSTTYDEV-3A7F2B1C`)
+- **Per-tab isolation** — each tab has its own log keyed by session name (e.g. `GD-3A`)
 
 Install the bundled CLI and skill (see [Installation](#installation)), and Claude Code will automatically log progress when tasks start or complete.
 
@@ -50,9 +50,9 @@ Quick actions accessible via the `>` chevron on the selected tab card:
 
 ### Tmux Session Management
 
-Each tab automatically gets a named tmux session with a `GHOSTTYDEV-` prefix for easy identification:
+Each tab automatically gets a named tmux session with a `GD-` prefix for easy identification:
 
-- **Named sessions** — e.g. `GHOSTTYDEV-3A7F2B1C` (derived from pane UUID)
+- **Named sessions** — e.g. `GD-3A` (derived from pane UUID)
 - **Idempotent** — `tmux new-session -A` creates or attaches
 - **`tmux ls` friendly** — all Ghostty sessions are instantly recognizable
 

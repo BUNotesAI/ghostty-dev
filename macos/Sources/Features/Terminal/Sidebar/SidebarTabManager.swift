@@ -41,11 +41,6 @@ class SidebarTabManager: ObservableObject {
 
     @Published var tabs: [TabItem] = []
 
-    /// The detected state of the selected tab's first pane.
-    @Published var selectedPaneState: PaneState = .unknown
-
-    /// Guard flag to prevent double-invocation of Launch CC within a single poll cycle.
-    @Published private(set) var isLaunchingCC: Bool = false
 
     /// Windows that need attention, cleared when the tab is selected.
     private var attentionWindows: Set<ObjectIdentifier> = []
@@ -206,9 +201,8 @@ class SidebarTabManager: ObservableObject {
             let branch = pwd.flatMap { gitBranch(at: $0) }
             let color = (w as? TerminalWindow)?.tabColor ?? .none
             let progress = controller.flatMap { c -> String? in
-                guard let root = c.surfaceTree.root else { return nil }
-                let uuidPrefix = String(root.leftmostLeaf().id.uuidString.prefix(8))
-                return Self.latestProgressLine(session: Self.sessionPrefix + uuidPrefix)
+                guard let watcher = c.progressLogWatcher else { return nil }
+                return Self.latestProgressLine(session: watcher.sessionName)
             }
 
             return TabItem(
@@ -230,153 +224,72 @@ class SidebarTabManager: ObservableObject {
             tabs = newTabs
         }
 
-        // Update pane state for the selected tab
-        updateSelectedPaneState(selectedWindow: selectedWindow)
     }
 
-    // MARK: - Pane State Detection
+    // MARK: - Action Panel Actions (Zellij)
 
-    /// Prefix added to tmux session names for easy identification in `tmux ls`.
-    private static let sessionPrefix = "GHOSTTYDEV-"
+    /// Prefix added to tmux/zellij session names for easy identification.
+    private static let sessionPrefix = "GD-"
 
-    /// The session name for the selected tab's first pane (e.g. "GHOSTTYDEV-3A7F2B1C").
+    /// The session name for the selected tab's first pane.
+    /// Format: `GD-{UUID2}` or `GD-{UUID2}-{sanitized_title}` if the tab has been renamed.
     var selectedTabUUIDPrefix: String? {
         guard let window else { return nil }
         let selectedWindow = window.tabGroup?.selectedWindow ?? window
         guard let controller = selectedWindow.windowController as? BaseTerminalController,
               let root = controller.surfaceTree.root else { return nil }
         let firstPane = root.leftmostLeaf()
-        return Self.sessionPrefix + String(firstPane.id.uuidString.prefix(8))
-    }
-
-    /// Cached result of async tmux-attached detection, updated in background.
-    private var cachedTmuxAttached: Bool = false
-    /// Whether an async tmux check is already in flight.
-    private var tmuxCheckInFlight: Bool = false
-
-    /// Cached result of async CC detection, updated in background.
-    private var cachedCCRunning: Bool = false
-    /// Whether an async CC check is already in flight.
-    private var ccCheckInFlight: Bool = false
-
-    private func updateSelectedPaneState(selectedWindow: NSWindow) {
-        guard let controller = selectedWindow.windowController as? BaseTerminalController,
-              let root = controller.surfaceTree.root else {
-            selectedPaneState = .unknown
-            return
-        }
-
-        let firstPane = root.leftmostLeaf()
-        let title = firstPane.title
-        let sessionName = Self.sessionPrefix + String(firstPane.id.uuidString.prefix(8))
-
-        let lower = title.lowercased()
-
-        // Detect if pane is INSIDE tmux: title-based (instant) OR async process check (fallback).
-        // tmux defaults to `set-titles off`, so the terminal title often won't change —
-        // cachedTmuxAttached provides reliable detection via `tmux list-clients`.
-        let titleMatch = title.contains(sessionName) || lower.contains("tmux")
-        let inTmux = titleMatch || cachedTmuxAttached
-
-        let newState: PaneState
-        if inTmux {
-            if lower.contains("claude") || cachedCCRunning {
-                newState = .ccRunning
-            } else {
-                newState = .tmuxRunning
-            }
-            // Kick off async CC check (non-blocking)
-            checkCCAsync(sessionName: sessionName)
-        } else {
-            cachedCCRunning = false
-            newState = .idle
-        }
-
-        // Always kick off async tmux check to keep cache fresh (detach → idle).
-        checkTmuxAsync(sessionName: sessionName)
-
-        if newState != selectedPaneState {
-            selectedPaneState = newState
-            isLaunchingCC = false
-        }
-    }
-
-    /// Async check if the tmux session is attached — never blocks the main thread.
-    private func checkTmuxAsync(sessionName: String) {
-        guard !tmuxCheckInFlight else { return }
-        tmuxCheckInFlight = true
-
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            let attached = Self.isTmuxSessionAttached(sessionName)
-            DispatchQueue.main.async {
-                self?.tmuxCheckInFlight = false
-                guard self?.cachedTmuxAttached != attached else { return }
-                self?.cachedTmuxAttached = attached
-                self?.refresh()
+        var name = Self.sessionPrefix + String(firstPane.id.uuidString.prefix(2))
+        if let title = controller.titleOverride, !title.isEmpty {
+            let sanitized = Self.sanitizeSessionName(title)
+            if !sanitized.isEmpty {
+                name += "-" + sanitized
             }
         }
+        return name
     }
 
-    /// Check if the named tmux session has an attached client.
-    /// Returns false if the session doesn't exist or has no clients.
-    private static func isTmuxSessionAttached(_ sessionName: String) -> Bool {
-        let pipe = Pipe()
+    /// Replace spaces with hyphens and non-ASCII/non-alphanumeric characters with hyphens.
+    static func sanitizeSessionName(_ raw: String) -> String {
+        let result = raw.unicodeScalars.map { scalar -> Character in
+            if CharacterSet.alphanumerics.contains(scalar) && scalar.isASCII {
+                return Character(scalar)
+            }
+            return "-"
+        }
+        return String(result)
+            .components(separatedBy: "-")
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+    }
+
+    func launchZellij() {
+        guard let uuidPrefix = selectedTabUUIDPrefix,
+              let surfaceModel = selectedFirstPaneSurfaceModel() else { return }
+        // --create flag: attach if session exists, create if not (idempotent).
+        // Equivalent to tmux's `new-session -A`.
+        surfaceModel.sendText("zellij attach --create \(uuidPrefix)")
+    }
+
+    func detachZellij() {
+        guard let uuidPrefix = selectedTabUUIDPrefix else { return }
+        // Detach via zellij IPC socket, works even when CC is running in the pane.
+        // Socket path on macOS: $TMPDIR/zellij-$UID/SESSION_NAME
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-l", "-c", "tmux list-clients -t \(sessionName) -F '#{client_name}' 2>/dev/null | head -1"]
-        process.standardOutput = pipe
+        process.arguments = ["-l", "-c", """
+            uid=$(id -u); \
+            socket="${TMPDIR}zellij-${uid}/\(uuidPrefix)"; \
+            if [ -S "$socket" ]; then \
+                ZELLIJ="$socket" ZELLIJ_SESSION_NAME="\(uuidPrefix)" zellij action detach 2>/dev/null; \
+            fi
+            """]
+        process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try? process.run()
-        process.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let result = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return !result.isEmpty
     }
 
-    /// Async check if CC is running — never blocks the main thread.
-    private func checkCCAsync(sessionName: String) {
-        guard !ccCheckInFlight else { return }
-        ccCheckInFlight = true
-
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            let running = Self.isCCRunningInSession(sessionName)
-            DispatchQueue.main.async {
-                self?.ccCheckInFlight = false
-                guard self?.cachedCCRunning != running else { return }
-                self?.cachedCCRunning = running
-                self?.refresh()
-            }
-        }
-    }
-
-    /// Check if "claude" is a direct child process of the tmux pane's shell.
-    /// Runs on a background thread — safe to call waitUntilExit().
-    private static func isCCRunningInSession(_ sessionName: String) -> Bool {
-        let pipe = Pipe()
-        let getPid = Process()
-        getPid.executableURL = URL(fileURLWithPath: "/bin/sh")
-        getPid.arguments = ["-l", "-c", "tmux list-panes -t \(sessionName) -F '#{pane_pid}' 2>/dev/null | head -1"]
-        getPid.standardOutput = pipe
-        getPid.standardError = FileHandle.nullDevice
-        try? getPid.run()
-        getPid.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let pidStr = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !pidStr.isEmpty else { return false }
-
-        let check = Process()
-        check.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        check.arguments = ["-P", pidStr, "claude"]
-        check.standardOutput = FileHandle.nullDevice
-        check.standardError = FileHandle.nullDevice
-        try? check.run()
-        check.waitUntilExit()
-        return check.terminationStatus == 0
-    }
-
-    // MARK: - Action Panel Actions
+    // MARK: - Action Panel Actions (tmux)
 
     func launchTmux() {
         guard let uuidPrefix = selectedTabUUIDPrefix,
@@ -384,13 +297,6 @@ class SidebarTabManager: ObservableObject {
         // -A flag: attach if session exists, create if not (idempotent).
         // Runs in user's shell so PATH always includes tmux.
         surfaceModel.sendText("tmux new-session -A -s \(uuidPrefix)")
-    }
-
-    func launchCC() {
-        guard !isLaunchingCC,
-              let surfaceModel = selectedFirstPaneSurfaceModel() else { return }
-        isLaunchingCC = true
-        surfaceModel.sendText("claude --dangerously-skip-permissions")
     }
 
     func detachTmux() {
@@ -404,6 +310,14 @@ class SidebarTabManager: ObservableObject {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try? process.run()
+    }
+
+    // MARK: - Action Panel Actions (shared)
+
+    func launchCC() {
+        guard let uuidPrefix = selectedTabUUIDPrefix,
+              let surfaceModel = selectedFirstPaneSurfaceModel() else { return }
+        surfaceModel.sendText("export AGENT_BROWSER_TABNAME=\(uuidPrefix) && claude --dangerously-skip-permissions")
     }
 
     /// Send text to the first pane of the selected tab (no newline appended).

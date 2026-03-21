@@ -104,6 +104,12 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Ghostty needs access to your Documents folder to run terminal commands in this directory.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Ghostty needs access to your Desktop folder to run terminal commands in this directory.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Ghostty needs access to your Downloads folder to run terminal commands in this directory.</string>
 	<key>SUEnableAutomaticChecks</key>
 	<false/>
 	<key>UTExportedTypeDeclarations</key>

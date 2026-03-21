@@ -17,13 +17,13 @@ SESSION_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 
 
 def get_session() -> str:
-    """Derive session name from GHOSTTY_TAB_ID (first 8 chars, prefixed)."""
+    """Derive session name from GHOSTTY_TAB_ID (first 2 chars, prefixed)."""
     tab_id = os.environ.get("GHOSTTY_TAB_ID", "")
     if not tab_id:
         print("Error: GHOSTTY_TAB_ID not set (not running inside Ghostty Dev?)", file=sys.stderr)
         sys.exit(1)
-    prefix = tab_id[:8]
-    return f"GHOSTTYDEV-{prefix}"
+    prefix = tab_id[:2]
+    return f"GD-{prefix}"
 
 
 def validate_session(session: str) -> str:

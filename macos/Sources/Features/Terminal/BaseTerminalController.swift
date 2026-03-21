@@ -144,7 +144,23 @@ class BaseTerminalController: NSWindowController,
         didSet {
             applyTitleToWindow()
             SessionPersistence.save()
+            updateProgressLogSessionName()
         }
+    }
+
+    /// Update progress log watcher session name to include/exclude the title suffix,
+    /// keeping it in sync with `$AGENT_BROWSER_TABNAME`.
+    private func updateProgressLogSessionName() {
+        guard let root = surfaceTree.root else { return }
+        let uuid2 = String(root.leftmostLeaf().id.uuidString.prefix(2))
+        var name = "GD-\(uuid2)"
+        if let title = titleOverride, !title.isEmpty {
+            let sanitized = SidebarTabManager.sanitizeSessionName(title)
+            if !sanitized.isEmpty {
+                name += "-" + sanitized
+            }
+        }
+        progressLogWatcher?.updateSessionName(name)
     }
 
     /// The last computed title from the focused surface (without the override).
@@ -199,8 +215,8 @@ class BaseTerminalController: NSWindowController,
 
         // Initialize progress log watcher using the leftmost pane's UUID
         if let root = surfaceTree.root {
-            let uuidPrefix = String(root.leftmostLeaf().id.uuidString.prefix(8))
-            progressLogWatcher = ProgressLogWatcher(sessionName: "GHOSTTYDEV-\(uuidPrefix)")
+            let uuidPrefix = String(root.leftmostLeaf().id.uuidString.prefix(2))
+            progressLogWatcher = ProgressLogWatcher(sessionName: "GD-\(uuidPrefix)")
         }
 
         // Setup our bell state for the window

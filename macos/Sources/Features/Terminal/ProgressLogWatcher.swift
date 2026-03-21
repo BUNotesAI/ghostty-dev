@@ -7,7 +7,7 @@ final class ProgressLogWatcher: ObservableObject {
     @Published var lines: [String] = []
     @Published var allText: String = ""
 
-    private let sessionName: String
+    private(set) var sessionName: String
     private let dirPath = "/tmp/ghostty-progress"
     private var filePath: String { "\(dirPath)/\(sessionName).log" }
     private nonisolated(unsafe) var fileDescriptor: Int32 = -1
@@ -33,6 +33,16 @@ final class ProgressLogWatcher: ObservableObject {
     }
 
     // MARK: - Public
+
+    /// Switch to watching a different session log file (e.g. when the tab title changes).
+    func updateSessionName(_ newName: String) {
+        guard newName != sessionName else { return }
+        stopMonitoring()
+        sessionName = newName
+        ensureDirectory()
+        readFile()
+        startMonitoring()
+    }
 
     func save(_ text: String) {
         try? text.write(toFile: filePath, atomically: true, encoding: .utf8)
