@@ -31,7 +31,7 @@ pub fn init(
         .ReleaseSafe,
         .ReleaseSmall,
         .ReleaseFast,
-        => "ReleaseLocal",
+        => "Release",
     };
 
     const xc_arch: ?[]const u8 = switch (deps.xcframework.target) {
@@ -65,10 +65,13 @@ pub fn init(
         step.env_map = env_map;
         step.addArgs(&.{
             "xcodebuild",
-            "-target",
-            "Ghostty",
+            "-project",
+            "Ghostty Dev.xcodeproj",
+            "-scheme",
+            "Ghostty Dev",
             "-configuration",
             xc_config,
+            "SYMROOT=build",
         });
 
         // If we have a specific architecture, we need to pass it
@@ -102,10 +105,13 @@ pub fn init(
         step.addArgs(&.{
             "xcodebuild",
             "test",
+            "-project",
+            "Ghostty Dev.xcodeproj",
             "-scheme",
-            "Ghostty",
+            "Ghostty Dev",
             "-skip-testing",
             "GhosttyUITests",
+            "SYMROOT=build",
         });
         if (xc_arch) |arch| step.addArgs(&.{ "-arch", arch });
 

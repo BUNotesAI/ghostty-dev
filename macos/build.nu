@@ -4,11 +4,11 @@
 # to avoid Nix shell interference (NIX_LDFLAGS, NIX_CFLAGS_COMPILE, etc.).
 
 def main [
-    --scheme: string = "Ghostty"       # Xcode scheme (Ghostty, Ghostty-iOS, DockTilePlugin)
-    --configuration: string = "Debug"  # Build configuration (Debug, Release, ReleaseLocal)
+    --scheme: string = "Ghostty Dev"   # Xcode scheme (Ghostty Dev, Ghostty-iOS, DockTilePlugin)
+    --configuration: string = "Release" # Build configuration (Debug, Release, ReleaseLocal)
     --action: string = "build"         # xcodebuild action (build, test, clean, etc.)
 ] {
-    let project = ($env.FILE_PWD | path join "Ghostty.xcodeproj")
+    let project = ($env.FILE_PWD | path join "Ghostty Dev.xcodeproj")
     let build_dir = ($env.FILE_PWD | path join "build")
 
     # Skip UI tests for CLI-based invocations because it requires
